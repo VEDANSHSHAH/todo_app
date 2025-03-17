@@ -1,0 +1,25 @@
+/* Custom styles to complement Bootstrap */
+body {
+    background-color: #f8f9fa;
+}
+
+.completed {
+    text-decoration: line-through;
+    color: #6c757d;
+}
+
+.task-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.task-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.container {
+    max-width: 800px;
+    margin-top: 20px;
+}
