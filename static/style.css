@@ -1,25 +1,84 @@
-/* Custom styles to complement Bootstrap */
+/* static/style.css */
+
+/* Custom Fonts */
 body {
-    background-color: #f8f9fa;
+    font-family: 'Poppins', sans-serif;
+    transition: background-color 0.5s ease, color 0.5s ease;
 }
 
-.completed {
-    text-decoration: line-through;
-    color: #6c757d;
+h1, h2, h3 {
+    font-family: 'Inter', sans-serif;
 }
 
+/* Light and Dark Mode */
+.light-mode {
+    background: linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%);
+    color: #1f2937;
+}
+
+.dark-mode {
+    background: linear-gradient(135deg, #1e1b4b 0%, #2e1065 100%);
+    color: #f3f4f6;
+}
+
+/* Glassmorphism Effect for Cards */
+.glass-card {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+/* Button Animations */
+.btn {
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Task Animation */
 .task-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeInUp 0.5s ease forwards;
 }
 
-.task-actions {
-    display: flex;
-    gap: 10px;
+@keyframes fadeInUp {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-.container {
-    max-width: 800px;
-    margin-top: 20px;
+/* Sidebar Animation */
+.sidebar {
+    transition: transform 0.3s ease;
+}
+
+.sidebar-hidden {
+    transform: translateX(-100%);
+}
+
+/* Progress Bar */
+.progress-bar {
+    background: rgba(255, 255, 255, 0.2);
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    background: #a855f7;
+    height: 100%;
+    transition: width 0.5s ease;
 }

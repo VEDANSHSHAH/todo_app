@@ -3,13 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{% endblock %} | To-Do App</title>
+    <title>{% block title %}{% endblock %} - To-Do App</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter and Poppins -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Particles.js -->
+    <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+    <!-- SortableJS for Drag-and-Drop -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto p-4">
-        {% block content %}
-        {% endblock %}
-    </div>
+<body class="dark-mode min-h-screen flex">
+    <!-- Particles Background -->
+    <div id="particles-js" class="absolute inset-0 z-0"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar fixed top-0 left-0 h-full w-64 bg-gradient-to-b from-indigo-700 to-purple-800 text-white p-6 shadow-lg z-20">
+        <div class="flex items-center space-x-3 mb-8">
+            <i class="fas fa-tasks text-2xl"></i>
+            <h2 class="text-2xl font-semibold">To-Do App</h2>
+        </div>
+        <nav class="space-y-4">
+            <a href="{{ url_for('index') }}" class="flex items-center space-x-3 text-lg hover:bg-indigo-600 p-3 rounded-lg transition">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            {% if 'user' in session %}
+                <a href="{{ url_for('logout') }}" class="flex items-center space-x-3 text-lg hover:bg-indigo-600 p-3 rounded-lg transition">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
+            {% endif %}
+        </nav>
+    </aside>
+
+    <!-- Sidebar Toggle Button (Mobile) -->
+    <button id="sidebar-toggle" class="fixed top-4 left-4 z-30 md:hidden p-2 rounded-full bg-indigo-600 text-white">
+        <i class="fas fa-bars"></i>
+    </button>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-6 md:ml-64 relative z-10">
+        <!-- Theme Toggle Button -->
+        <div class="fixed top-4 right-4 z-50">
+            <button id="theme-toggle" class="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 animate-pulse">
+                <i class="fas fa-sun"></i> <!-- Default to sun icon since dark mode is active -->
+            </button>
+        </div>
+
+        <!-- Flash Messages -->
+        <div class="mb-6">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="glass-card p-4 mb-4 text-{{ 'green' if category == 'success' else 'yellow' if category == 'warning' else 'red' }}-300" role="alert">
+                            <p>{{ message }}</p>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        {% block content %}{% endblock %}
+
+        <!-- Footer -->
+        <footer class="mt-12 text-center text-gray-500 dark:text-gray-400">
+            <p>© 2025 To-Do App. Designed with <i class="fas fa-heart text-red-500"></i> by Vedansh Shah.</p>
+        </footer>
+    </main>
+
+    <!-- Force Initial Theme -->
+    <script>
+        // Force dark mode as default
+        const body = document.body;
+        const toggleButton = document.getElementById('theme-toggle');
+        body.classList.add('dark-mode'); // Ensure dark mode is applied
+        toggleButton.innerHTML = '<i class="fas fa-sun"></i>'; // Set default icon to sun
+        localStorage.setItem('theme', 'dark'); // Set localStorage to dark
+    </script>
+
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='custom.js') }}"></script>
 </body>
 </html>
