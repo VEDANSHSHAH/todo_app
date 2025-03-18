@@ -1,16 +1,19 @@
 import os
 import sqlite3
-from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort
 from flask_session import Session
 from authlib.integrations.flask_client import OAuth
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Initialize Flask app
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secure-secret-key')
 
-# Use filesystem sessions locally, Redis on Render if REDIS_URL is provided
+# Configure session management
 if os.getenv('FLASK_ENV') == 'development' or not os.getenv('REDIS_URL'):
     app.config['SESSION_TYPE'] = 'filesystem'
 else:
@@ -24,10 +27,7 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 Session(app)
 
 # Determine base URL based on environment
-if os.getenv('FLASK_ENV') == 'development':
-    BASE_URL = 'http://127.0.0.1:5000'
-else:
-    BASE_URL = os.getenv('BASE_URL', 'https://flask-to-do-app-with-oauth.onrender.com')
+BASE_URL = 'http://127.0.0.1:5000' if os.getenv('FLASK_ENV') == 'development' else os.getenv('BASE_URL', 'https://flask-to-do-app-with-oauth.onrender.com')
 
 # Google OAuth configuration
 oauth = OAuth(app)
@@ -35,10 +35,10 @@ google = oauth.register(
     name='google',
     client_id=os.getenv('GOOGLE_CLIENT_ID'),
     client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
-    redirect_uri=lambda: BASE_URL + '/auth/callback',  # Updated to /auth/callback for Render
+    redirect_uri=lambda: f'{BASE_URL}/auth/callback',
     access_token_url='https://oauth2.googleapis.com/token',
     authorize_url='https://accounts.google.com/o/oauth2/auth',
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',  # For jwks_uri
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={
         'scope': 'openid profile email',
         'response_type': 'code',
@@ -46,15 +46,43 @@ google = oauth.register(
     }
 )
 
-# Database initialization with persistent disk support
+# Email notification function
+def send_notification_email(to_email, action, details=""):
+    sender_email = os.getenv('EMAIL_USER')
+    password = os.getenv('EMAIL_PASSWORD')
+
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = to_email
+    msg['Subject'] = f'To-do App: {action}'
+
+    body = f"""Hello,
+
+You have performed the following action in the Flask To-do App:
+- Action: {action}
+- Details: {details}
+
+Best,
+The Flask To-do Team"""
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(sender_email, password)
+            server.send_message(msg)
+        print(f"Notification email sent to {to_email} for {action}")
+    except Exception as e:
+        app.logger.error(f"Failed to send email for {action}: {e}")
+        flash(f"Action successful, but notification email failed: {str(e)}", 'warning')
+
+# Database initialization
 def init_db():
     db_path = os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')
     with sqlite3.connect(db_path) as conn:
         c = conn.cursor()
         c.execute('PRAGMA table_info(users)')
-        columns = [row[1] for row in c.fetchall()]
-        if 'password' not in columns or not columns:
-            c.execute('DROP TABLE IF EXISTS users')
+        if 'password' not in [col[1] for col in c.fetchall()]:
             c.execute('''CREATE TABLE users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT NOT NULL UNIQUE,
@@ -69,7 +97,6 @@ def init_db():
         )''')
         conn.commit()
 
-# Initialize database on app start
 init_db()
 
 # Routes
@@ -82,12 +109,11 @@ def index():
     sort_order = 'ASC' if sort_by == 'created' else 'DESC'
 
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute(f'SELECT * FROM todos WHERE user_id = ? ORDER BY {sort_by} {sort_order}', (user_id,))
-        todos = c.fetchall()
-        conn.close()
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(f'SELECT * FROM todos WHERE user_id = ? ORDER BY {sort_by} {sort_order}', (user_id,))
+            todos = c.fetchall()
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
@@ -112,23 +138,21 @@ def manual_login():
     password = request.form['password']
 
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute('SELECT * FROM users WHERE email = ?', (email,))
-        user = c.fetchone()
-        conn.close()
-
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute('SELECT * FROM users WHERE email = ?', (email,))
+            user = c.fetchone()
         if user and check_password_hash(user['password'], password):
             session['user'] = user['email']
             flash('Logged in successfully!', 'success')
-            return redirect(url_for('index'))
         else:
             flash('Invalid email or password', 'danger')
-            return redirect(url_for('login'))
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
+
+    return redirect(url_for('index'))
 
 @app.route('/manual_signup', methods=['POST'])
 def manual_signup():
@@ -141,20 +165,20 @@ def manual_signup():
         return redirect(url_for('signup'))
 
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        c = conn.cursor()
-        hashed_password = generate_password_hash(password)
-        c.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_password))
-        conn.commit()
-        conn.close()
-        flash('Sign-up successful! Please log in.', 'success')
-        return redirect(url_for('login'))
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            c = conn.cursor()
+            c.execute('INSERT INTO users (email, password) VALUES (?, ?)',
+                      (email, generate_password_hash(password)))
+            conn.commit()
+        send_notification_email(email, 'Signup', f'Welcome {email.split("@")[0]}!')
+        flash('Sign-up successful! Check your email for confirmation.', 'success')
     except sqlite3.IntegrityError:
         flash('Email already exists', 'danger')
-        return redirect(url_for('signup'))
     except Exception as e:
-        app.logger.error(f"Database error: {e}")
-        abort(500)
+        app.logger.error(f"Database or email error: {e}")
+        flash('Sign-up successful, but confirmation email failed.', 'warning')
+
+    return redirect(url_for('login'))
 
 @app.route('/google_login')
 def google_login():
@@ -162,29 +186,30 @@ def google_login():
     nonce = secrets.token_urlsafe(16)
     session['oauth_state'] = state
     session['oauth_nonce'] = nonce
-    return google.authorize_redirect(redirect_uri=BASE_URL + '/auth/callback', state=state, nonce=nonce)
+    return google.authorize_redirect(redirect_uri=f'{BASE_URL}/auth/callback', state=state, nonce=nonce)
 
-@app.route('/auth/callback')  # Updated to /auth/callback
+@app.route('/auth/callback')
 def authorize():
-    stored_state = session.get('oauth_state')
-    received_state = request.args.get('state')
-    if not stored_state or stored_state != received_state:
-        app.logger.error(f"State mismatch: stored={stored_state}, received={received_state}")
+    if session.get('oauth_state') != request.args.get('state'):
+        app.logger.error(f"State mismatch: stored={session.get('oauth_state')}, received={request.args.get('state')}")
         return "State mismatch error", 403
 
-    stored_nonce = session.get('oauth_nonce')
-    token = google.authorize_access_token()
-    user = google.parse_id_token(token, nonce=stored_nonce)
-    session['user'] = user['email']
-    session.pop('oauth_state', None)
-    session.pop('oauth_nonce', None)
+    try:
+        token = google.authorize_access_token()
+        user = google.parse_id_token(token, nonce=session.get('oauth_nonce'))
+        session['user'] = user['email']
+    except Exception as e:
+        app.logger.error(f"OAuth error: {e}")
+        abort(500)
+    finally:
+        session.pop('oauth_state', None)
+        session.pop('oauth_nonce', None)
 
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        c = conn.cursor()
-        c.execute('INSERT OR IGNORE INTO users (email, password) VALUES (?, ?)', (user['email'], ''))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            c = conn.cursor()
+            c.execute('INSERT OR IGNORE INTO users (email, password) VALUES (?, ?)', (user['email'], ''))
+            conn.commit()
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
@@ -209,11 +234,12 @@ def add_task():
 
     user_id = session['user']
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        c = conn.cursor()
-        c.execute('INSERT INTO todos (content, user_id) VALUES (?, ?)', (content, user_id))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            c = conn.cursor()
+            c.execute('INSERT INTO todos (content, user_id) VALUES (?, ?)', (content, user_id))
+            conn.commit()
+        send_notification_email(user_id, 'Task Added', f'Content: {content}')
+        flash('Task added successfully!', 'success')
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
@@ -227,11 +253,15 @@ def delete(id):
 
     user_id = session['user']
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        c = conn.cursor()
-        c.execute('DELETE FROM todos WHERE id = ? AND user_id = ?', (id, user_id))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            c = conn.cursor()
+            c.execute('SELECT content FROM todos WHERE id = ? AND user_id = ?', (id, user_id))
+            task = c.fetchone()
+            c.execute('DELETE FROM todos WHERE id = ? AND user_id = ?', (id, user_id))
+            conn.commit()
+        if task:
+            send_notification_email(user_id, 'Task Deleted', f'Content: {task[0]}')
+            flash('Task deleted successfully!', 'success')
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
@@ -249,11 +279,12 @@ def update(id):
 
     user_id = session['user']
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        c = conn.cursor()
-        c.execute('UPDATE todos SET content = ? WHERE id = ? AND user_id = ?', (content, id, user_id))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE todos SET content = ? WHERE id = ? AND user_id = ?', (content, id, user_id))
+            conn.commit()
+        send_notification_email(user_id, 'Task Updated', f'New Content: {content}')
+        flash('Task updated successfully!', 'success')
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
@@ -267,15 +298,17 @@ def completed(id):
 
     user_id = session['user']
     try:
-        conn = sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db'))
-        c = conn.cursor()
-        c.execute('SELECT completed FROM todos WHERE id = ? AND user_id = ?', (id, user_id))
-        result = c.fetchone()
-        if result:
-            completed_status = not result[0]
-            c.execute('UPDATE todos SET completed = ? WHERE id = ? AND user_id = ?', (completed_status, id, user_id))
-            conn.commit()
-        conn.close()
+        with sqlite3.connect(os.path.join(os.getenv('DATA_DIR', '.'), 'todo.db')) as conn:
+            c = conn.cursor()
+            c.execute('SELECT content, completed FROM todos WHERE id = ? AND user_id = ?', (id, user_id))
+            result = c.fetchone()
+            if result:
+                completed_status = not result[1]
+                c.execute('UPDATE todos SET completed = ? WHERE id = ? AND user_id = ?', (completed_status, id, user_id))
+                conn.commit()
+                action = 'Task Marked Completed' if completed_status else 'Task Marked Incomplete'
+                send_notification_email(user_id, action, f'Content: {result[0]}')
+                flash(f'Task {"completed" if completed_status else "marked incomplete"} successfully!', 'success')
     except Exception as e:
         app.logger.error(f"Database error: {e}")
         abort(500)
